@@ -1,0 +1,11 @@
+
+/dist/
+/src/*.egg-info/
+__pycache__/
+.vscode
+tests/data/**/tmp/*
+hecdss.dll
+hecdss.lib
+libhecdss.so
+hecdss.h
+.idea
