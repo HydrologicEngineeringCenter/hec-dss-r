@@ -1,0 +1,22 @@
+# Hand-maintained NAMESPACE for the hecdssr package.
+# Regenerate with roxygen2 once R/ is documented.
+# Package is named hecdssr (not hecdss) to avoid a Windows DLL-name collision
+# with the underlying HEC C library hecdss.dll.
+
+useDynLib(hecdssr, .registration = TRUE)
+importFrom(Rcpp, evalCpp)
+importFrom(R6, R6Class)
+importFrom(xts, xts, xtsAttributes, "xtsAttributes<-")
+importFrom(zoo, index, "index<-", coredata, "coredata<-")
+importFrom(stats, setNames)
+
+export(HecDss)
+export(open_dss)
+export(record_type_from_int)
+export(parse_dss_path)
+export(format_dss_path)
+export(path_without_date)
+
+S3method(print, dss_path)
+S3method(print, dss_catalog)
+S3method(as.data.frame, dss_catalog)

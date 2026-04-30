@@ -1,0 +1,25 @@
+Package: hecdssr
+Title: R Interface to HEC-DSS (Hydrologic Engineering Center Data Storage System)
+Version: 0.1.0
+Authors@R:
+    person("HEC", "Developer", , "hecdss@example.com", role = c("aut", "cre"))
+Description: An R interface to the HEC-DSS library for reading and writing
+    time series data in DSS version 7 files. Mirrors the architecture of the
+    hec-dss-python library: a thin Rcpp shim over the hecdss C API, with all
+    higher-level logic implemented in R. Time series are returned as xts
+    objects with metadata stored as xts attributes.
+License: MIT + file LICENSE
+Encoding: UTF-8
+LazyData: true
+RoxygenNote: 7.3.2
+Imports:
+    Rcpp (>= 1.0.0),
+    R6,
+    xts,
+    zoo
+LinkingTo:
+    Rcpp
+Suggests:
+    testthat (>= 3.0.0),
+    data.table
+Config/testthat/edition: 3

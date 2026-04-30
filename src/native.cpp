@@ -1,284 +1,312 @@
-// example.cpp
-// [[Rcpp::depends(Rcpp)]]
-// [[Rcpp::plugins("cpp11")]]
+// hecdss R package - thin Rcpp FFI shim over the hecdss C API.
+// One function per hec_dss_* entry point. No business logic — date math,
+// path parsing, record-type interpretation, and xts assembly all live in R.
+// Mirrors hec-dss-python/src/hecdss/native.py.
+
 #include <Rcpp.h>
-#include <Windows.h>
-#include <iostream>
-#include "hecdss.h"
-#include <ctime>
+#include <string>
+#include <vector>
 
-double DSS_UNDEFINED_VALUE = -340282346638528859811704183484516925440.000000;
+#include "dss_ptr.h"
 
-// Function to format Rcpp::Datetime to string using strftime
-std::string format_datetime(const Rcpp::Datetime& datetime, const char* format="%Y-%m-%d %H:%M:%S") {
-    // char buffer[100];
-    // std::time_t time = static_cast<std::time_t>(datetime.getFractionalTimestamp());
-    // std::tm tm_info;
-    // gmtime_s(&tm_info, &time); // Use gmtime_s for thread-safe conversion
-    // std::strftime(buffer, sizeof(buffer), format, &tm_info);
-    double timestamp = datetime.getFractionalTimestamp();
-    time_t t = (time_t) timestamp;
-    // Format datetime
-    char buffer[80];
-    strftime(buffer, sizeof(buffer), format, localtime(&t));
-    return std::string(buffer);
+static const int PATH_BUFFER_SIZE = 400;
+static const int UNITS_BUFFER_SIZE = 40;
+static const int TYPE_BUFFER_SIZE = 40;
+
+// ---- open / close / metadata ---------------------------------------------
+
+// [[Rcpp::export]]
+DssPtr native_open(const std::string& filename) {
+    dss_file* dss = nullptr;
+    int status = hec_dss_open(filename.c_str(), &dss);
+    if (status != 0 || dss == nullptr) {
+        Rcpp::stop("hec_dss_open failed (status=%d) for: %s", status, filename);
+    }
+    return DssPtr(dss, true);
 }
 
-// Function to convert from DSS integer datetime array to Rcpp::Datetime array
-std::vector<Rcpp::Datetime> date_times_from_julian_array(const std::vector<int>& times_julian, 
-                                                         int time_granularity_seconds, 
-                                                         int julian_base_date) {
-    if (times_julian.empty()) {
-        Rcpp::stop("Time Series Times array was empty. Something didn't work right in DSS.");
+// [[Rcpp::export]]
+int native_close(DssPtr dss) {
+    if (dss.get() == nullptr) return 0;
+    int status = hec_dss_close(dss.get());
+    dss.release();  // prevent finalizer double-close
+    return status;
+}
+
+// [[Rcpp::export]]
+int native_get_version(DssPtr dss) {
+    return hec_dss_getVersion(dss.get());
+}
+
+// [[Rcpp::export]]
+int native_get_file_version(const std::string& filename) {
+    return hec_dss_getFileVersion(filename.c_str());
+}
+
+// [[Rcpp::export]]
+int native_record_count(DssPtr dss) {
+    return hec_dss_record_count(dss.get());
+}
+
+// [[Rcpp::export]]
+int native_set_value(const std::string& name, int value) {
+    return hec_dss_set_value(name.c_str(), value);
+}
+
+// [[Rcpp::export]]
+int native_set_string(const std::string& name, const std::string& value) {
+    return hec_dss_set_string(name.c_str(), value.c_str());
+}
+
+// ---- catalog -------------------------------------------------------------
+
+// [[Rcpp::export]]
+Rcpp::List native_catalog(DssPtr dss, std::string filter = "") {
+    int count = hec_dss_record_count(dss.get());
+    if (count <= 0) {
+        return Rcpp::List::create(
+            Rcpp::Named("paths") = Rcpp::CharacterVector(),
+            Rcpp::Named("record_types") = Rcpp::IntegerVector()
+        );
     }
 
-    std::vector<Rcpp::Datetime> times;
-    Rcpp::Datetime baseDateTime("1900-01-01 00:00:00");
-    baseDateTime = baseDateTime - Rcpp::Datetime(1 * 86400); // Subtract one day
+    std::vector<char> path_buffer(static_cast<size_t>(count) * PATH_BUFFER_SIZE, '\0');
+    std::vector<int> record_types(count, 0);
 
+    const char* filter_ptr = filter.empty() ? nullptr : filter.c_str();
 
-    for (int t : times_julian) {
-        double delta = 0;
-        if (time_granularity_seconds == 1) {  // 1 second
-            delta = t;
-        } else if (time_granularity_seconds == 60) {  // 60 seconds per minute
-            delta = static_cast<double>(t) * 60;
-        } else if (time_granularity_seconds == 3600) {  // 3600 seconds per hour
-            delta = static_cast<double>(t) * 3600;
-        } else if (time_granularity_seconds == 86400) {  // 86400 seconds per day
-            delta = static_cast<double>(t) * 86400;
-        }
-
-        Rcpp::Datetime datetime = baseDateTime + Rcpp::Datetime(delta) + Rcpp::Datetime(static_cast<double>(julian_base_date) * 86400);
-        times.push_back(datetime);
+    int n = hec_dss_catalog(
+        dss.get(), path_buffer.data(), record_types.data(),
+        filter_ptr, count, PATH_BUFFER_SIZE
+    );
+    if (n < 0) {
+        Rcpp::stop("hec_dss_catalog failed (status=%d)", n);
     }
 
-    return times;
-}
-
-// [[Rcpp::export]]
-Rcpp::XPtr<dss_file> test_open(const char* filename){
-    dss_file* dss12 = nullptr;
-    hec_dss_open(filename, &dss12);
-
-    return Rcpp::XPtr<dss_file>(dss12, true);
-}
-
-// [[Rcpp::export]]
-int test_version(Rcpp::XPtr<dss_file> dss12){
-    dss_file* dss1 = dss12.get();
-    return hec_dss_getVersion(dss1);
-}
-
-// // [[Rcpp::export]]
-// Rcpp::List retrieve_ts_info(Rcpp::XPtr<dss_file> dss, std::string pathname) {
-//     const int unitsLength = 40;
-//     const int typeLength = 40;
-//     char units[unitsLength] = "";
-//     char type[typeLength] = "";
-
-//     int status = hec_dss_tsRetrieveInfo(dss.get(), pathname.c_str(), units, unitsLength, type, typeLength);
-//     if (status != 0) {
-//         Rcpp::stop("Error retrieving time series info");
-//     }
-
-//     return Rcpp::List::create(Rcpp::Named("units") = std::string(units),
-//                               Rcpp::Named("type") = std::string(type));
-// }
-
-// [[Rcpp::export]]
-Rcpp::List get_date_time_range_full(Rcpp::XPtr<dss_file> dss, std::string pathname, int boolFullSet) {
-    int firstValidJulian = 0;
-    int firstSeconds = 0;
-    int lastValidJulian = 0;
-    int lastSeconds = 0;
-
-    int status = hec_dss_tsGetDateTimeRange(dss.get(), pathname.c_str(), boolFullSet, &firstValidJulian, &firstSeconds, &lastValidJulian, &lastSeconds);
-    if (status != 0) {
-        Rcpp::stop("Error retrieving full date-time range");
+    Rcpp::CharacterVector paths(n);
+    Rcpp::IntegerVector rtypes(n);
+    for (int i = 0; i < n; ++i) {
+        // Each path is a null-terminated string in its slot.
+        paths[i] = std::string(path_buffer.data() + i * PATH_BUFFER_SIZE);
+        rtypes[i] = record_types[i];
     }
 
-    std::vector<int> firstSecondsVec = {firstSeconds};
-    std::vector<int> lastSecondsVec = {lastSeconds};
-
-    Rcpp::Datetime first = date_times_from_julian_array(firstSecondsVec, 1, firstValidJulian)[0];
-    Rcpp::Datetime last = date_times_from_julian_array(lastSecondsVec, 1, lastValidJulian)[0];
-
-
-    return Rcpp::List::create(Rcpp::Named("first") = first,
-                              Rcpp::Named("last") = last);
+    return Rcpp::List::create(
+        Rcpp::Named("paths") = paths,
+        Rcpp::Named("record_types") = rtypes
+    );
 }
 
 // [[Rcpp::export]]
-Rcpp::List get_ts_sizes(Rcpp::XPtr<dss_file> dss, std::string pathname, 
-                        std::string startDate, std::string startTime, 
-                        std::string endDate, std::string endTime) {
+int native_record_type(DssPtr dss, const std::string& pathname) {
+    return hec_dss_recordType(dss.get(), pathname.c_str());
+}
+
+// [[Rcpp::export]]
+int native_data_type(DssPtr dss, const std::string& pathname) {
+    return hec_dss_dataType(dss.get(), pathname.c_str());
+}
+
+// [[Rcpp::export]]
+int native_delete(DssPtr dss, const std::string& pathname) {
+    return hec_dss_delete(dss.get(), pathname.c_str());
+}
+
+// ---- time series: info & sizes -------------------------------------------
+
+// [[Rcpp::export]]
+Rcpp::List native_ts_retrieve_info(DssPtr dss, const std::string& pathname) {
+    char units[UNITS_BUFFER_SIZE] = {0};
+    char type[TYPE_BUFFER_SIZE] = {0};
+
+    int status = hec_dss_tsRetrieveInfo(
+        dss.get(), pathname.c_str(),
+        units, UNITS_BUFFER_SIZE,
+        type, TYPE_BUFFER_SIZE
+    );
+
+    return Rcpp::List::create(
+        Rcpp::Named("status") = status,
+        Rcpp::Named("units") = std::string(units),
+        Rcpp::Named("type") = std::string(type)
+    );
+}
+
+// [[Rcpp::export]]
+Rcpp::List native_ts_get_sizes(DssPtr dss, const std::string& pathname,
+                               const std::string& startDate, const std::string& startTime,
+                               const std::string& endDate, const std::string& endTime) {
     int numberValues = 0;
     int qualityElementSize = 0;
 
-    int status = hec_dss_tsGetSizes(dss.get(), pathname.c_str(), 
-                                    startDate.c_str(), startTime.c_str(), 
-                                    endDate.c_str(), endTime.c_str(), 
-                                    &numberValues, &qualityElementSize);
-    if (status != 0) {
-        Rcpp::stop("Error retrieving time series sizes");
-    }
+    int status = hec_dss_tsGetSizes(
+        dss.get(), pathname.c_str(),
+        startDate.c_str(), startTime.c_str(),
+        endDate.c_str(), endTime.c_str(),
+        &numberValues, &qualityElementSize
+    );
 
-    return Rcpp::List::create(Rcpp::Named("numberValues") = numberValues,
-                              Rcpp::Named("qualityElementSize") = qualityElementSize);
+    return Rcpp::List::create(
+        Rcpp::Named("status") = status,
+        Rcpp::Named("number_values") = numberValues,
+        Rcpp::Named("quality_element_size") = qualityElementSize
+    );
 }
 
 // [[Rcpp::export]]
-Rcpp::DataFrame get_timeseries(Rcpp::XPtr<dss_file> dss, std::string pathname, 
-                               Rcpp::Nullable<Rcpp::Datetime> startDateTime = R_NilValue, 
-                               Rcpp::Nullable<Rcpp::Datetime> endDateTime = R_NilValue) {
-    Rcpp::Datetime startDateTimeVal;
-    Rcpp::Datetime endDateTimeVal;
+Rcpp::List native_ts_get_date_time_range(DssPtr dss, const std::string& pathname,
+                                          int boolFullSet) {
+    int firstJulian = 0, firstSeconds = 0;
+    int lastJulian = 0, lastSeconds = 0;
 
-    // Retrieve date-time range if startDateTime or endDateTime is not provided
-    if (startDateTime.isNull() || endDateTime.isNull()) {
-        Rcpp::List date_time_range = get_date_time_range_full(dss, pathname, 1);
-        
-        if (startDateTime.isNull()) {
-            startDateTimeVal = date_time_range["first"];
-        } else {
-            startDateTimeVal = Rcpp::Datetime(startDateTime);
-        }
-        if (endDateTime.isNull()) {
-            endDateTimeVal = date_time_range["last"];
-        } else {
-            endDateTimeVal = Rcpp::Datetime(endDateTime);
-        }
-    } else {
-        startDateTimeVal = Rcpp::Datetime(startDateTime);
-        endDateTimeVal = Rcpp::Datetime(endDateTime);
+    int status = hec_dss_tsGetDateTimeRange(
+        dss.get(), pathname.c_str(), boolFullSet,
+        &firstJulian, &firstSeconds,
+        &lastJulian, &lastSeconds
+    );
+
+    return Rcpp::List::create(
+        Rcpp::Named("status") = status,
+        Rcpp::Named("first_julian") = firstJulian,
+        Rcpp::Named("first_seconds") = firstSeconds,
+        Rcpp::Named("last_julian") = lastJulian,
+        Rcpp::Named("last_seconds") = lastSeconds
+    );
+}
+
+// ---- time series: retrieve -----------------------------------------------
+
+// Returns raw arrays + metadata. Date assembly happens in R.
+//
+// [[Rcpp::export]]
+Rcpp::List native_ts_retrieve(DssPtr dss, const std::string& pathname,
+                              const std::string& startDate, const std::string& startTime,
+                              const std::string& endDate, const std::string& endTime,
+                              int arraySize, int qualityWidth) {
+    if (arraySize <= 0) {
+        Rcpp::stop("arraySize must be positive (got %d)", arraySize);
     }
-    // Rcpp::Rcout << "Start Time Val: " << startDateTimeVal << std::endl;
-    // Rcpp::Rcout << "End Date Val: " << endDateTimeVal << std::endl;
+    if (qualityWidth < 0) qualityWidth = 0;
 
-    std::string startDate = format_datetime(startDateTimeVal , "%d%b%Y");
-    std::string startTime = format_datetime(startDateTimeVal , "%H:%M:%S");
-    std::string endDate = format_datetime(endDateTimeVal , "%d%b%Y");
-    std::string endTime = format_datetime(endDateTimeVal , "%H:%M:%S");
+    std::vector<int> timeArray(arraySize, 0);
+    std::vector<double> valueArray(arraySize, 0.0);
+    int qSize = qualityWidth > 0 ? arraySize * qualityWidth : arraySize;
+    std::vector<int> quality(qSize, 0);
 
-    // Retrieve time series sizes
-    Rcpp::List ts_sizes = get_ts_sizes(dss, pathname, startDate, startTime, endDate, endTime);
-    int arraySize = Rcpp::as<int>(ts_sizes["numberValues"]);
-
-    std::vector<int> timeArray(arraySize);
-    std::vector<double> valueArray(arraySize);
     int numberValuesRead = 0;
-    std::vector<int> quality(arraySize);
     int julianBaseDate = 0;
     int timeGranularitySeconds = 0;
-    char units[50];
-    char type[50];
+    char units[UNITS_BUFFER_SIZE] = {0};
+    char type[TYPE_BUFFER_SIZE] = {0};
 
-    // // Retrieve time series info
-    // Rcpp::List tsInfo = retrieve_ts_info(dss, pathname);
-    // std::string units = Rcpp::as<std::string>(tsInfo["units"]);
-    // std::string type = Rcpp::as<std::string>(tsInfo["type"]);
+    int status = hec_dss_tsRetrieve(
+        dss.get(), pathname.c_str(),
+        startDate.c_str(), startTime.c_str(),
+        endDate.c_str(), endTime.c_str(),
+        timeArray.data(), valueArray.data(), arraySize,
+        &numberValuesRead, quality.data(), qualityWidth,
+        &julianBaseDate, &timeGranularitySeconds,
+        units, UNITS_BUFFER_SIZE, type, TYPE_BUFFER_SIZE
+    );
 
-    // Debugging output
-    Rcpp::Rcout << "Array Sizes: " << arraySize << std::endl;
-    Rcpp::Rcout << "Start Time: " << startTime << std::endl;
-    Rcpp::Rcout << "Start Date: " << startDate << std::endl;
-    Rcpp::Rcout << "End Time: " << endTime << std::endl;
-    Rcpp::Rcout << "End Date: " << endDate << std::endl;
+    // Trim to numberValuesRead.
+    int n = numberValuesRead < 0 ? 0 : numberValuesRead;
+    if (n > arraySize) n = arraySize;
 
-    int status = hec_dss_tsRetrieve(dss.get(), pathname.c_str(), 
-                                    startDate.c_str(), startTime.c_str(), 
-                                    endDate.c_str(), endTime.c_str(), 
-                                    timeArray.data(), valueArray.data(), arraySize, 
-                                    &numberValuesRead, quality.data(), arraySize, 
-                                    &julianBaseDate, &timeGranularitySeconds, 
-                                    units, 40, type, 40);
-
-    if (status != 0) {
-        Rcpp::Rcout << "Error code: " << status << std::endl;
-        Rcpp::Rcout << "Pathname: " << pathname << std::endl;
-        Rcpp::Rcout << "Start Date: " << startDate << std::endl;
-        Rcpp::Rcout << "Start Time: " << startTime << std::endl;
-        Rcpp::Rcout << "End Date: " << endDate << std::endl;
-        Rcpp::Rcout << "End Time: " << endTime << std::endl;
-        Rcpp::stop("Error retrieving time series data");
+    Rcpp::IntegerVector r_times(n);
+    Rcpp::NumericVector r_values(n);
+    for (int i = 0; i < n; ++i) {
+        r_times[i] = timeArray[i];
+        r_values[i] = valueArray[i];
     }
 
-    // Convert timeArray to Rcpp::Datetime
-    std::vector<Rcpp::Datetime> datetimeArray = date_times_from_julian_array(timeArray, timeGranularitySeconds, julianBaseDate);
-
-    // Filter out undefined values
-    std::vector<Rcpp::Datetime> filteredTimeArray;
-    std::vector<double> filteredValueArray;
-    for (int i = 0; i < numberValuesRead; ++i) {
-        //if (valueArray[i] != DSS_UNDEFINED_VALUE) {
-            filteredTimeArray.push_back(datetimeArray[i]);
-            filteredValueArray.push_back(valueArray[i]);
-        //}
+    Rcpp::IntegerVector r_quality;
+    if (qualityWidth > 0) {
+        r_quality = Rcpp::IntegerVector(n);
+        for (int i = 0; i < n; ++i) r_quality[i] = quality[i];
     }
 
-    Rcpp::DataFrame df = Rcpp::DataFrame::create(Rcpp::Named("Time") = filteredTimeArray,
-                                                 Rcpp::Named("Value") = filteredValueArray);
+    return Rcpp::List::create(
+        Rcpp::Named("status") = status,
+        Rcpp::Named("times") = r_times,
+        Rcpp::Named("values") = r_values,
+        Rcpp::Named("quality") = r_quality,
+        Rcpp::Named("julian_base_date") = julianBaseDate,
+        Rcpp::Named("time_granularity_seconds") = timeGranularitySeconds,
+        Rcpp::Named("units") = std::string(units),
+        Rcpp::Named("type") = std::string(type)
+    );
+}
 
-    // Set Units and Type as attributes
-    df.attr("Units") = units;
-    df.attr("Type") = type;
+// ---- time series: store --------------------------------------------------
 
-    return df;
-    
+// [[Rcpp::export]]
+int native_ts_store_regular(DssPtr dss, const std::string& pathname,
+                            const std::string& startDate, const std::string& startTime,
+                            Rcpp::NumericVector values,
+                            Rcpp::IntegerVector quality,
+                            int saveAsFloat,
+                            const std::string& units,
+                            const std::string& type,
+                            const std::string& timeZoneName,
+                            int storageFlag) {
+    int n = values.size();
+    int qn = quality.size();
+
+    return hec_dss_tsStoreRegular(
+        dss.get(), pathname.c_str(),
+        startDate.c_str(), startTime.c_str(),
+        REAL(values), n,
+        qn > 0 ? INTEGER(quality) : nullptr, qn,
+        saveAsFloat,
+        units.c_str(), type.c_str(),
+        timeZoneName.c_str(), storageFlag
+    );
 }
 
 // [[Rcpp::export]]
-void store_timeseries(Rcpp::XPtr<dss_file> dss, std::string pathname, 
-                      std::string startDate, std::string startTime, 
-                      Rcpp::NumericVector valueArray, 
-                      Rcpp::IntegerVector qualityArray, 
-                      int saveAsFloat, std::string units, std::string type) {
-    int valueArraySize = valueArray.size();
-    int qualityArraySize = qualityArray.size();
+int native_ts_store_irregular(DssPtr dss, const std::string& pathname,
+                              const std::string& startDateBase,
+                              Rcpp::IntegerVector times,
+                              int timeGranularitySeconds,
+                              Rcpp::NumericVector values,
+                              Rcpp::IntegerVector quality,
+                              int saveAsFloat,
+                              const std::string& units,
+                              const std::string& type) {
+    int n = values.size();
+    int qn = quality.size();
 
-    if (valueArraySize != qualityArraySize) {
-        Rcpp::stop("Value array and quality array must have the same size");
+    if (times.size() != n) {
+        Rcpp::stop("times and values must have the same length (got %d and %d)",
+                   times.size(), n);
     }
 
-    int status = hec_dss_tsStoreRegular(dss.get(), pathname.c_str(), 
-                                        startDate.c_str(), startTime.c_str(), 
-                                        valueArray.begin(), valueArraySize, 
-                                        qualityArray.begin(), qualityArraySize, 
-                                        saveAsFloat, units.c_str(), type.c_str());
+    return hec_dss_tsStoreIregular(
+        dss.get(), pathname.c_str(),
+        startDateBase.c_str(),
+        INTEGER(times), timeGranularitySeconds,
+        REAL(values), n,
+        qn > 0 ? INTEGER(quality) : nullptr, qn,
+        saveAsFloat,
+        units.c_str(), type.c_str()
+    );
+}
 
-    if (status != 0) {
-        Rcpp::stop("Error storing time series data");
-    }
+// ---- date helpers exported for convenience -------------------------------
+
+// [[Rcpp::export]]
+Rcpp::IntegerVector native_julian_to_ymd(int julian) {
+    int year = 0, month = 0, day = 0;
+    hec_dss_julianToYearMonthDay(julian, &year, &month, &day);
+    return Rcpp::IntegerVector::create(
+        Rcpp::Named("year") = year,
+        Rcpp::Named("month") = month,
+        Rcpp::Named("day") = day
+    );
 }
 
 // [[Rcpp::export]]
-void store_dataframe(Rcpp::XPtr<dss_file> dss, std::string pathname, Rcpp::DataFrame df, int saveAsFloat) {
-    // Extract the first Datetime object from the data frame
-    Rcpp::DatetimeVector timeVector = df["Time"];
-    Rcpp::Datetime startDateTime = timeVector[0];
-
-    // Format the Datetime object to get the start date and time
-    std::string startDate = format_datetime(startDateTime, "%d%b%Y");
-    std::string startTime = format_datetime(startDateTime, "%H:%M:%S");
-
-    Rcpp::Rcout << "startDate: " << startDate << std::endl;
-    Rcpp::Rcout << "startTime: " << startTime << std::endl;
-
-    // Extract the values and quality arrays from the data frame
-    Rcpp::NumericVector valueArray = df["Value"];
-    Rcpp::IntegerVector qualityArray = df.containsElementNamed("Quality") ? df["Quality"] : Rcpp::IntegerVector(valueArray.size(), 0);
-
-    // Extract units and type from the DataFrame attributes
-    std::string units = Rcpp::as<std::string>(df.attr("Units"));
-    std::string type = Rcpp::as<std::string>(df.attr("Type"));
-
-    // Call the store_timeseries function to store the data in the DSS file
-    store_timeseries(dss, pathname, startDate, startTime, valueArray, qualityArray, saveAsFloat, units, type);
-}
-
-// [[Rcpp::export]]
-void close_dss(Rcpp::XPtr<dss_file> dss) {
-    dss_file* dss1 = dss.get();
-    hec_dss_close(dss1);
+int native_date_to_julian(const std::string& date) {
+    return hec_dss_dateToJulian(date.c_str());
 }

@@ -1,0 +1,5 @@
+WORKING_DIR := $(shell pwd)
+WORKING_DIR := $(patsubst %/src,%,$(WORKING_DIR))
+
+PKG_CPPFLAGS = -I$(WORKING_DIR)/inst/include
+PKG_LIBS = -L$(WORKING_DIR)/inst/libs -lhecdss
