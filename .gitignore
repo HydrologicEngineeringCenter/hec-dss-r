@@ -1,11 +1,29 @@
+# R / RStudio
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+*.Rproj
 
-/dist/
-/src/*.egg-info/
-__pycache__/
+# Build artifacts from src/
+src/*.o
+src/*.so
+src/*.dll
+
+# Built package tarballs / binaries
+*.tar.gz
+*.tgz
+
+# Native HEC-DSS library — fetched by tools/download_hecdss.R
+inst/libs/*
+!inst/libs/.gitkeep
+# inst/include/hecdss.h is vendored from HydrologicEngineeringCenter/hec-dss;
+# re-vendor it (and bump HECDSS_VERSION in tools/download_hecdss.R) when the
+# C API changes.
+
+# Editor / OS
 .vscode
-tests/data/**/tmp/*
-hecdss.dll
-hecdss.lib
-libhecdss.so
-hecdss.h
 .idea
+
+# Test scratch
+tests/data/**/tmp/*

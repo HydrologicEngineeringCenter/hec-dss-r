@@ -1,12 +1,12 @@
 ^.*\.Rproj$
 ^\.Rproj\.user$
 ^.*\.tar\.gz$
-^hec_dss_r\.R$
-^testdss\.R$
 ^src/.*\.o$
 ^src/.*\.dll$
-^src/.*_copy\.cpp$
 ^\.vscode$
 ^\.git$
 ^\.github$
+^\.gitignore$
 ^examples$
+^tools$
+^INTENT\.md$
