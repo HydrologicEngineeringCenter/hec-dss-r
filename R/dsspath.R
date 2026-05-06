@@ -17,6 +17,16 @@ parse_dss_path <- function(path, rec_type = "Unknown") {
         stop(sprintf("Invalid DSS path: '%s'", path))
     }
     inner <- substr(p, 2L, nchar(p) - 1L)
+    # `strsplit` silently drops trailing empty parts, so we can't trust its
+    # output length to validate the structure. Count the separators directly
+    # — a six-part inner has exactly five.
+    n_sep <- nchar(inner) - nchar(gsub("/", "", inner, fixed = TRUE))
+    if (n_sep != 5L) {
+        stop(sprintf(
+            "Invalid DSS path: '%s' has %d parts, expected 6 (/A/B/C/D/E/F/)",
+            path, n_sep + 1L
+        ))
+    }
     parts <- strsplit(inner, "/", fixed = TRUE)[[1L]]
     if (length(parts) < 6L) {
         parts <- c(parts, rep("", 6L - length(parts)))

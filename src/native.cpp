@@ -193,11 +193,13 @@ Rcpp::List native_ts_retrieve(DssPtr dss, const std::string& pathname,
     int qSize = qualityWidth > 0 ? arraySize * qualityWidth : arraySize;
     std::vector<int> quality(qSize, 0);
 
+    static const int TZ_BUFFER_SIZE = 64;
     int numberValuesRead = 0;
     int julianBaseDate = 0;
     int timeGranularitySeconds = 0;
     char units[UNITS_BUFFER_SIZE] = {0};
     char type[TYPE_BUFFER_SIZE] = {0};
+    char timeZoneName[TZ_BUFFER_SIZE] = {0};
 
     int status = hec_dss_tsRetrieve(
         dss.get(), pathname.c_str(),
@@ -206,7 +208,8 @@ Rcpp::List native_ts_retrieve(DssPtr dss, const std::string& pathname,
         timeArray.data(), valueArray.data(), arraySize,
         &numberValuesRead, quality.data(), qualityWidth,
         &julianBaseDate, &timeGranularitySeconds,
-        units, UNITS_BUFFER_SIZE, type, TYPE_BUFFER_SIZE
+        units, UNITS_BUFFER_SIZE, type, TYPE_BUFFER_SIZE,
+        timeZoneName, TZ_BUFFER_SIZE
     );
 
     // Trim to numberValuesRead.
@@ -234,7 +237,8 @@ Rcpp::List native_ts_retrieve(DssPtr dss, const std::string& pathname,
         Rcpp::Named("julian_base_date") = julianBaseDate,
         Rcpp::Named("time_granularity_seconds") = timeGranularitySeconds,
         Rcpp::Named("units") = std::string(units),
-        Rcpp::Named("type") = std::string(type)
+        Rcpp::Named("type") = std::string(type),
+        Rcpp::Named("time_zone_name") = std::string(timeZoneName)
     );
 }
 
@@ -273,7 +277,9 @@ int native_ts_store_irregular(DssPtr dss, const std::string& pathname,
                               Rcpp::IntegerVector quality,
                               int saveAsFloat,
                               const std::string& units,
-                              const std::string& type) {
+                              const std::string& type,
+                              const std::string& timeZoneName,
+                              int storageFlag) {
     int n = values.size();
     int qn = quality.size();
 
@@ -289,7 +295,8 @@ int native_ts_store_irregular(DssPtr dss, const std::string& pathname,
         REAL(values), n,
         qn > 0 ? INTEGER(quality) : nullptr, qn,
         saveAsFloat,
-        units.c_str(), type.c_str()
+        units.c_str(), type.c_str(),
+        timeZoneName.c_str(), storageFlag
     );
 }
 

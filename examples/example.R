@@ -4,7 +4,26 @@
 library(hecdssr)
 library(xts)
 
-filename <- "C:/Users/q0hecoah/Documents/data/examples-all-data-types.dss"
+# Default points at the HEC test fixture bundled in this directory.
+# Override with HECDSSR_EXAMPLE_DSS to run against a different DSS file.
+script_dir <- local({
+    f <- tryCatch(sys.frame(1)$ofile, error = function(e) NULL)
+    if (is.null(f) || !nzchar(f)) {
+        args <- commandArgs(trailingOnly = FALSE)
+        farg <- sub("^--file=", "", grep("^--file=", args, value = TRUE))
+        f <- if (length(farg)) farg else file.path(getwd(), "examples")
+    }
+    dirname(normalizePath(f, mustWork = FALSE))
+})
+default_dss <- file.path(script_dir, "examples-all-data-types.dss")
+filename <- Sys.getenv("HECDSSR_EXAMPLE_DSS", unset = default_dss)
+
+if (!file.exists(filename)) {
+    stop(sprintf(
+        "Example DSS file not found: '%s'. Set HECDSSR_EXAMPLE_DSS or edit this script.",
+        filename
+    ))
+}
 
 # Open
 dss <- open_dss(filename)

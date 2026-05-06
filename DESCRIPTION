@@ -9,8 +9,10 @@ Description: An R interface to the HEC-DSS library for reading and writing
     higher-level logic implemented in R. Time series are returned as xts
     objects with metadata stored as xts attributes.
 License: MIT + file LICENSE
+URL: https://github.com/HydrologicEngineeringCenter/hec-dss-r
+BugReports: https://github.com/HydrologicEngineeringCenter/hec-dss-r/issues
 Encoding: UTF-8
-LazyData: true
+SystemRequirements: HEC-DSS native library (>= 7-JA-7); run tools/download_hecdss.R from a clone to fetch it.
 Imports:
     Rcpp (>= 1.0.0),
     R6,

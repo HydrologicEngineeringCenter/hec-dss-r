@@ -38,15 +38,17 @@ store_irregular_timeseries <- function(dss, ts, pathname = NULL,
         quality <- integer(0)
     }
 
-    units         <- attrs$units         %||% ""
-    type          <- attrs$type          %||% ""
-    save_as_float <- as.integer(attrs$save_as_float %||% 0L)
+    units           <- attrs$units           %||% ""
+    type            <- attrs$type            %||% ""
+    save_as_float   <- as.integer(attrs$save_as_float %||% 0L)
+    time_zone_name  <- attrs$time_zone_name  %||% ""
+    storage_flag    <- as.integer(attrs$storage_flag %||% 0L)
 
     status <- native_ts_store_irregular(
         dss, pathname, start_date_base_str,
         as.integer(int_times), as.integer(time_granularity_seconds),
         values, quality, save_as_float,
-        units, type
+        units, type, time_zone_name, storage_flag
     )
     if (status != 0L) {
         stop(sprintf("hec_dss_tsStoreIregular failed (status=%d) for: %s",
