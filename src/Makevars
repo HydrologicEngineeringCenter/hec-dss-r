@@ -2,4 +2,7 @@ WORKING_DIR := $(shell pwd)
 WORKING_DIR := $(patsubst %/src,%,$(WORKING_DIR))
 
 PKG_CPPFLAGS = -I$(WORKING_DIR)/inst/include
-PKG_LIBS = -L$(WORKING_DIR)/inst/libs -lhecdss -Wl,-rpath,$(WORKING_DIR)/inst/libs
+# Use $ORIGIN so the rpath is relative to hecdssr.so's install location,
+# not its build location. libhecdss.so is shipped in inst/libs/ which R
+# copies to <pkg>/libs/, the same directory hecdssr.so ends up in.
+PKG_LIBS = -L$(WORKING_DIR)/inst/libs -lhecdss -Wl,-rpath,'$$ORIGIN'

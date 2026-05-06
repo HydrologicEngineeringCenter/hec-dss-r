@@ -106,7 +106,17 @@ main <- function() {
   }
   pkg_root <- normalizePath(file.path(dirname(this_file), ".."))
 
-  libs_dir    <- file.path(pkg_root, "inst", "libs")
+  # On Windows R installs platform DLLs into <pkg>/libs/x64/ (the directory
+  # of hecdssr.dll). Putting hecdss.dll there lets Windows' default
+  # same-directory DLL search find it without any PATH manipulation. On
+  # Linux the compiled hecdssr.so lives at <pkg>/libs/<pkg>.so, so plain
+  # inst/libs/ is correct (the build sets a $ORIGIN rpath in src/Makevars).
+  libs_subdir <- if (Sys.info()[["sysname"]] == "Windows") {
+    file.path("libs", "x64")
+  } else {
+    "libs"
+  }
+  libs_dir    <- file.path(pkg_root, "inst", libs_subdir)
   include_dir <- file.path(pkg_root, "inst", "include")
 
   tag <- platform_tag()

@@ -11,3 +11,4 @@
 ^tools$
 ^INTENT\.md$
 ^CONTRIBUTING\.md$
+^inst/libs/\.gitkeep$

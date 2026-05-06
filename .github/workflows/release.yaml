@@ -9,8 +9,49 @@ permissions:
   contents: write   # needed to create/update GitHub Releases
 
 jobs:
+  # --------------------------------------------------------------------------
+  # Gate the build on a successful R CMD check. Mirrors what R-CMD-check.yaml
+  # runs on PRs, but here it blocks publishing if anything regresses.
+  # --------------------------------------------------------------------------
+  check:
+    name: R CMD check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    env:
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+      R_KEEP_PKG_SOURCE: yes
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: 'release'
+          use-public-rspm: true
+
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          extra-packages: any::rcmdcheck
+          needs: check
+
+      - name: Download HEC-DSS native library
+        run: Rscript tools/download_hecdss.R
+        shell: bash
+
+      - uses: r-lib/actions/check-r-package@v2
+        with:
+          upload-snapshots: true
+          error-on: '"error"'
+          args: 'c("--no-manual")'
+
+  # --------------------------------------------------------------------------
+  # Build artifacts only after check passes.
+  # --------------------------------------------------------------------------
   build:
     name: Build (${{ matrix.os }})
+    needs: check
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -53,15 +94,11 @@ jobs:
         shell: bash
 
       # Linux runner produces the universal source tarball (`*.tar.gz`).
-      # Anyone on any platform can install it with
-      # `install.packages("hecdssr_<v>.tar.gz", repos = NULL, type = "source")`
-      # provided they have a C/C++ toolchain.
       - name: Build source tarball
         if: runner.os == 'Linux'
         run: R CMD build --no-build-vignettes --no-manual .
 
-      # Windows runner produces a binary `.zip` so end users without Rtools
-      # can install with `install.packages("hecdssr_<v>.zip", repos = NULL)`.
+      # Windows runner produces a binary `.zip`.
       - name: Build Windows binary
         if: runner.os == 'Windows'
         shell: bash
@@ -79,6 +116,10 @@ jobs:
             hecdssr_*.zip
           if-no-files-found: error
 
+  # --------------------------------------------------------------------------
+  # Publish the release. Tags get a stable versioned release; main pushes
+  # update a rolling "latest" pre-release.
+  # --------------------------------------------------------------------------
   release:
     name: Publish release
     needs: build
@@ -113,9 +154,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Replace the rolling pre-release in place so the download URL
-          # https://github.com/<org>/<repo>/releases/download/latest/<file>
-          # is stable, but always serves the most recent main build.
           gh release delete latest --yes --cleanup-tag 2>/dev/null || true
           gh release create latest dist/* \
             --title "Latest main build" \

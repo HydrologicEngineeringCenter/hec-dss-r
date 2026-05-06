@@ -14,8 +14,9 @@ src/*.dll
 *.tar.gz
 *.tgz
 
-# Native HEC-DSS library — fetched by tools/download_hecdss.R
-inst/libs/*
+# Native HEC-DSS library — fetched by tools/download_hecdss.R into
+# inst/libs/ (Linux) or inst/libs/x64/ (Windows).
+inst/libs/**
 !inst/libs/.gitkeep
 # inst/include/hecdss.h is vendored from HydrologicEngineeringCenter/hec-dss;
 # re-vendor it (and bump HECDSS_VERSION in tools/download_hecdss.R) when the

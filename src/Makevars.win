@@ -2,4 +2,6 @@ WORKING_DIR := $(shell pwd)
 WORKING_DIR := $(patsubst %/src,%,$(WORKING_DIR))
 
 PKG_CPPFLAGS = -I$(WORKING_DIR)/inst/include
-PKG_LIBS = -L$(WORKING_DIR)/inst/libs -lhecdss
+# hecdss.dll lives in inst/libs/x64/ so it ships next to hecdssr.dll after
+# install — Windows finds it via the same-directory DLL search rule.
+PKG_LIBS = -L$(WORKING_DIR)/inst/libs/x64 -lhecdss

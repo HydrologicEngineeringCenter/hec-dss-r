@@ -1,11 +1,6 @@
-.onLoad <- function(libname, pkgname) {
-    libs_path <- file.path(libname, pkgname, "libs")
-
-    if (.Platform$OS.type == "windows") {
-        current_path <- Sys.getenv("PATH")
-        Sys.setenv(PATH = paste(libs_path, current_path, sep = ";"))
-    } else {
-        ld_path <- Sys.getenv("LD_LIBRARY_PATH")
-        Sys.setenv(LD_LIBRARY_PATH = paste(libs_path, ld_path, sep = ":"))
-    }
-}
+# hecdss.dll / libhecdss.so ship alongside hecdssr.dll / hecdssr.so in
+# <pkg>/libs[/<arch>], so the dynamic loader finds them without any PATH
+# manipulation:
+#   * Windows: same-directory DLL search (inst/libs/x64/ → <pkg>/libs/x64/)
+#   * Linux:   $ORIGIN rpath baked in by src/Makevars
+# No .onLoad hook is required.
