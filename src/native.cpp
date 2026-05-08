@@ -28,9 +28,12 @@ DssPtr native_open(const std::string& filename) {
 // [[Rcpp::export]]
 int native_close(DssPtr dss) {
     if (dss.get() == nullptr) return 0;
-    int status = hec_dss_close(dss.get());
-    dss.release();  // prevent finalizer double-close
-    return status;
+    // Rcpp::XPtr::release() invokes the registered finalizer (dss_finalizer),
+    // which calls hec_dss_close, and clears the external pointer so the
+    // finalizer is a no-op when GC later reclaims the SEXP. Calling
+    // hec_dss_close manually here would double-free the dss_file*.
+    dss.release();
+    return 0;
 }
 
 // [[Rcpp::export]]

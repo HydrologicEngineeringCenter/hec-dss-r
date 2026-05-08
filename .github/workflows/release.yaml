@@ -10,48 +10,13 @@ permissions:
 
 jobs:
   # --------------------------------------------------------------------------
-  # Gate the build on a successful R CMD check. Mirrors what R-CMD-check.yaml
-  # runs on PRs, but here it blocks publishing if anything regresses.
+  # One job per platform that sets up R + Rtools, fetches the HEC-DSS native
+  # library, runs R CMD check, and (if check passes) builds the release
+  # artifact. Combining check + build means we only set up the environment
+  # once per platform per run.
   # --------------------------------------------------------------------------
-  check:
-    name: R CMD check (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: true
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    env:
-      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
-      R_KEEP_PKG_SOURCE: yes
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: r-lib/actions/setup-r@v2
-        with:
-          r-version: 'release'
-          use-public-rspm: true
-
-      - uses: r-lib/actions/setup-r-dependencies@v2
-        with:
-          extra-packages: any::rcmdcheck
-          needs: check
-
-      - name: Download HEC-DSS native library
-        run: Rscript tools/download_hecdss.R
-        shell: bash
-
-      - uses: r-lib/actions/check-r-package@v2
-        with:
-          upload-snapshots: true
-          error-on: '"error"'
-          args: 'c("--no-manual")'
-
-  # --------------------------------------------------------------------------
-  # Build artifacts only after check passes.
-  # --------------------------------------------------------------------------
-  build:
-    name: Build (${{ matrix.os }})
-    needs: check
+  check-and-build:
+    name: Check + Build (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -87,18 +52,28 @@ jobs:
 
       - uses: r-lib/actions/setup-r-dependencies@v2
         with:
+          extra-packages: any::rcmdcheck
           needs: check
 
       - name: Download HEC-DSS native library
         run: Rscript tools/download_hecdss.R
         shell: bash
 
-      # Linux runner produces the universal source tarball (`*.tar.gz`).
+      # Drops --as-cran so the bundled inst/libs DLL doesn't trip the
+      # "undeclared executable" warning. Standard R CMD check still runs
+      # the testthat suite, so real regressions still fail the workflow.
+      - uses: r-lib/actions/check-r-package@v2
+        with:
+          upload-snapshots: true
+          error-on: '"error"'
+          args: 'c("--no-manual")'
+
+      # Past this point check was green. Build the artifact for this
+      # platform: source tarball on Linux, binary .zip on Windows.
       - name: Build source tarball
         if: runner.os == 'Linux'
         run: R CMD build --no-build-vignettes --no-manual .
 
-      # Windows runner produces a binary `.zip`.
       - name: Build Windows binary
         if: runner.os == 'Windows'
         shell: bash
@@ -117,12 +92,11 @@ jobs:
           if-no-files-found: error
 
   # --------------------------------------------------------------------------
-  # Publish the release. Tags get a stable versioned release; main pushes
-  # update a rolling "latest" pre-release.
+  # Publish the release once both platforms have produced their artifacts.
   # --------------------------------------------------------------------------
   release:
     name: Publish release
-    needs: build
+    needs: check-and-build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
